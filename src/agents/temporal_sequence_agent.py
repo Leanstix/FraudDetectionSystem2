@@ -23,15 +23,19 @@ class TemporalSequenceAgent(BaseAgent):
 
         hour_rarity = df.get("hour_rarity", pd.Series(np.zeros(len(df)))).astype(float).clip(0, 1)
         weekday_rarity = df.get("weekday_rarity", pd.Series(np.zeros(len(df)))).astype(float).clip(0, 1)
+        ref_hour_rarity = df.get("reference_hour_rarity", pd.Series(np.zeros(len(df)))).astype(float).clip(0, 1)
+        ref_weekday_rarity = df.get("reference_weekday_rarity", pd.Series(np.zeros(len(df)))).astype(float).clip(0, 1)
 
         score = (
-            0.22 * c1h
-            + 0.16 * c24h
-            + 0.10 * c7d
-            + 0.20 * recentness
-            + 0.15 * burst
+            0.18 * c1h
+            + 0.14 * c24h
+            + 0.08 * c7d
+            + 0.18 * recentness
+            + 0.12 * burst
             + 0.10 * hour_rarity
             + 0.07 * weekday_rarity
+            + 0.08 * ref_hour_rarity
+            + 0.05 * ref_weekday_rarity
         ).clip(0, 1)
 
         reasons = []
@@ -47,6 +51,10 @@ class TemporalSequenceAgent(BaseAgent):
                 parts.append("unusual_hour")
             if weekday_rarity.iloc[i] > 0.8:
                 parts.append("unusual_weekday")
+            if ref_hour_rarity.iloc[i] > 0.8:
+                parts.append("rare_vs_reference_hour")
+            if ref_weekday_rarity.iloc[i] > 0.8:
+                parts.append("rare_vs_reference_weekday")
             reasons.append(";".join(parts[:4]) if parts else "typical_temporal_pattern")
 
         return pd.DataFrame(

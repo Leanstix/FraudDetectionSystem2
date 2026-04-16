@@ -6,6 +6,14 @@ llm_cache_dir: cache/llm
 random_seed: 42
 output_dir: outputs
 cache_dir: cache
+reference_decay_days: 90
+suspicious_comm_half_life_hours: 72
+target_flag_rate: 0.12
+min_flag_rate: 0.02
+max_flag_rate: 0.45
+min_score: 0.15
+max_score: 0.98
+score_floor: 0.35
 
 agent_weights:
   transaction_behavior_score: 0.28
@@ -20,3 +28,4 @@ thresholds:
   max_flag_rate: 0.45
   min_score: 0.15
   max_score: 0.98
+  score_floor: 0.35

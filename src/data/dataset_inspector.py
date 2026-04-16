@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
-import pandas as pd
-
 from src.data.loaders import DatasetLoader
 
 
@@ -28,3 +24,12 @@ class DatasetInspector:
             "mail_threads": len(mails),
             "transaction_columns": list(tx.columns),
         }
+
+
+def inspect_pair(reference_path: str, target_path: str) -> dict:
+    reference = DatasetInspector(reference_path).inspect()
+    target = DatasetInspector(target_path).inspect()
+    return {
+        "reference": reference,
+        "target": target,
+    }

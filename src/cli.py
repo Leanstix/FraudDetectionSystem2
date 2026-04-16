@@ -6,39 +6,54 @@ from src.config import Settings
 from src.pipeline.orchestrator import FraudPipeline
 
 
-def infer_dataset_name(input_path: str) -> str:
-    base = Path(input_path).stem.lower().replace(" ", "_").replace("+", "_")
-    base = base.replace("-", "_")
-    return "_".join([token for token in base.split("_") if token])
+def infer_dataset_name(reference_path: str, target_path: str) -> str:
+    joined = f"{Path(reference_path).stem}_{Path(target_path).stem}".lower().replace(" ", "_").replace("+", "_")
+    tokens = [token for token in joined.replace("-", "_").split("_") if token]
+    if "truman" in joined:
+        return "the_truman_show"
+    return "_".join(tokens)
 
 
-def run_inspect(input_path: str, config_path: str | None = None) -> dict:
+def run_inspect_pair(reference_path: str, input_path: str, config_path: str | None = None) -> dict:
     settings = Settings.from_env_and_file(config_path)
-    dataset_name = infer_dataset_name(input_path)
+    dataset_name = infer_dataset_name(reference_path, input_path)
     pipeline = FraudPipeline(
         settings=settings,
-        input_path=input_path,
+        reference_path=reference_path,
+        target_path=input_path,
         output_path="outputs/inspect_only.txt",
         dataset_name=dataset_name,
         no_llm=True,
         verbose=False,
     )
     report = pipeline.inspect()
-    print(f"dataset name: {report['dataset_name']}")
-    print(f"total transaction count: {report['transactions']}")
-    print(f"users: {report['users']}")
-    print(f"locations: {report['locations']}")
-    print(f"sms threads: {report['sms_threads']}")
-    print(f"mail threads: {report['mail_threads']}")
+
+    ref = report["reference"]
+    tgt = report["target"]
+    print(f"dataset name: {dataset_name}")
+    print(f"reference path: {reference_path}")
+    print(f"target path: {input_path}")
+    print(f"reference transactions: {ref['transactions']}")
+    print(f"target transactions: {tgt['transactions']}")
+    print(f"reference users: {ref['users']}")
+    print(f"target users: {tgt['users']}")
     return report
 
 
-def run_predict(input_path: str, output_path: str, no_llm: bool = False, verbose: bool = False, config_path: str | None = None):
+def run_predict_pair(
+    reference_path: str,
+    input_path: str,
+    output_path: str,
+    no_llm: bool = False,
+    verbose: bool = False,
+    config_path: str | None = None,
+):
     settings = Settings.from_env_and_file(config_path)
-    dataset_name = infer_dataset_name(input_path)
+    dataset_name = infer_dataset_name(reference_path, input_path)
     pipeline = FraudPipeline(
         settings=settings,
-        input_path=input_path,
+        reference_path=reference_path,
+        target_path=input_path,
         output_path=output_path,
         dataset_name=dataset_name,
         no_llm=no_llm,

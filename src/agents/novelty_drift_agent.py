@@ -25,6 +25,9 @@ class NoveltyDriftAgent(BaseAgent):
                 "distance_from_latest_gps_km",
                 "suspicious_communication_window_score",
                 "novelty_score",
+                "reference_geo_novelty",
+                "reference_hour_rarity",
+                "reference_weekday_rarity",
             ]
             if c in df.columns
         ]
@@ -35,7 +38,12 @@ class NoveltyDriftAgent(BaseAgent):
             iso = isolation_forest_score(x, contamination=0.08, seed=42)
             lof = lof_score(x)
             base = df.get("novelty_score", pd.Series(np.zeros(len(df)))).astype(float)
-            score = (0.35 * iso + 0.35 * lof + 0.30 * base).clip(0, 1)
+            unseen_mix = (
+                df.get("unseen_transaction_type_indicator", 0).astype(float)
+                + df.get("unseen_payment_method_indicator", 0).astype(float)
+                + df.get("unseen_location_pattern_indicator", 0).astype(float)
+            ) / 3.0
+            score = (0.30 * iso + 0.30 * lof + 0.25 * base + 0.15 * unseen_mix).clip(0, 1)
         else:
             score = pd.Series(np.zeros(len(df)), index=df.index, dtype=float)
 

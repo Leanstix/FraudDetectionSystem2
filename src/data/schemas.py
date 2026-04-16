@@ -9,6 +9,12 @@ from src.constants import REQUIRED_FILES, TRANSACTION_REQUIRED_COLUMNS
 REQUIRED_FILE_NAMES = set(REQUIRED_FILES.values())
 TRANSACTION_COLUMNS = TRANSACTION_REQUIRED_COLUMNS
 
+TRANSACTIONS_FILE = REQUIRED_FILES["transactions"]
+USERS_FILE = REQUIRED_FILES["users"]
+LOCATIONS_FILE = REQUIRED_FILES["locations"]
+SMS_FILE = REQUIRED_FILES["sms"]
+MAILS_FILE = REQUIRED_FILES["mails"]
+
 
 def validate_transactions_schema(df: pd.DataFrame) -> None:
     missing = [c for c in TRANSACTION_COLUMNS if c not in df.columns]

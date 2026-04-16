@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pandas as pd
 
 from src.agents.base import BaseAgent
 from src.config import Settings
-from src.models.calibration import choose_target_count, threshold_from_target
 from src.models.fusion import weighted_fusion
 
 
@@ -14,7 +15,6 @@ class FusionDecisionAgent(BaseAgent):
 
     def __init__(self, settings: Settings):
         self.settings = settings
-        self._target_count = 1
 
     def merge_scores(self, features_df: pd.DataFrame, agent_outputs: list[pd.DataFrame]) -> pd.DataFrame:
         merged = features_df.copy()
@@ -59,26 +59,46 @@ class FusionDecisionAgent(BaseAgent):
         return df
 
     def choose_threshold(self, scored_df: pd.DataFrame) -> float:
-        n = len(scored_df)
-        th = self.settings.thresholds
-        self._target_count = choose_target_count(
-            n,
-            target_rate=float(th.get("target_flag_rate", 0.12)),
-            min_rate=float(th.get("min_flag_rate", 0.02)),
-            max_rate=float(th.get("max_flag_rate", 0.45)),
-        )
-        threshold = threshold_from_target(scored_df["final_risk_score"], self._target_count)
-        return float(np.clip(threshold, float(th.get("min_score", 0.0)), float(th.get("max_score", 1.0))))
+        scores = scored_df["final_risk_score"].fillna(0.0).astype(float)
+        if scores.empty:
+            return 1.0
+
+        q = 1.0 - float(self.settings.target_flag_rate)
+        quantile_threshold = float(scores.quantile(q))
+        threshold = max(float(self.settings.score_floor), quantile_threshold)
+        threshold = max(float(self.settings.min_score), min(threshold, float(self.settings.max_score)))
+        return threshold
+
+    def _apply_bounds(self, ranked_df: pd.DataFrame, flagged_series: pd.Series) -> pd.Series:
+        n = len(ranked_df)
+        if n <= 1:
+            return pd.Series([True] * n, index=ranked_df.index)
+
+        min_flags = max(1, int(math.ceil(n * self.settings.min_flag_rate)))
+        max_flags = min(n - 1, int(math.floor(n * self.settings.max_flag_rate)))
+        if max_flags < min_flags:
+            max_flags = min_flags
+
+        count = int(flagged_series.sum())
+        adjusted = flagged_series.copy()
+
+        if count < min_flags:
+            adjusted.iloc[:min_flags] = True
+            count = int(adjusted.sum())
+
+        if count > max_flags:
+            keep_ids = set(ranked_df.iloc[:max_flags]["transaction_id"].astype(str).tolist())
+            adjusted = ranked_df["transaction_id"].astype(str).isin(keep_ids)
+
+        return adjusted
 
     def flag_transactions(self, scored_df: pd.DataFrame, threshold: float) -> pd.DataFrame:
         df = scored_df.copy().sort_values(["final_risk_score", "transaction_id"], ascending=[False, True]).reset_index(drop=True)
-        df["flagged"] = False
+        raw_flagged = df["final_risk_score"].astype(float) >= float(threshold)
+        bounded = self._apply_bounds(df, raw_flagged)
 
-        target = int(np.clip(self._target_count, 1, max(len(df) - 1, 1)))
-        df.loc[: target - 1, "flagged"] = True
-
-        # Preserve threshold information for diagnostics while enforcing valid output cardinality.
-        df["threshold_used"] = threshold
+        df["flagged"] = bounded.astype(bool)
+        df["threshold_used"] = float(threshold)
         return df
 
     def run(self, features_df: pd.DataFrame, agent_outputs: list[pd.DataFrame]) -> pd.DataFrame:

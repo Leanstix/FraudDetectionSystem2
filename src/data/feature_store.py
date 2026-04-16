@@ -9,22 +9,23 @@ from sklearn.ensemble import IsolationForest
 from sklearn.neighbors import LocalOutlierFactor
 
 from src.constants import SUSPICIOUS_KEYWORDS
+from src.data.baseline_store import BaselineStore
 from src.utils.geo import haversine_km
 from src.utils.math import minmax, robust_zscore
 
 
 class FeatureStore:
-    def __init__(self):
-        pass
+    def __init__(self, baseline_store: BaselineStore | None = None):
+        self.baseline_store = baseline_store
 
     def build_transaction_features(self, transactions_df: pd.DataFrame) -> pd.DataFrame:
         df = transactions_df.copy().sort_values("timestamp").reset_index(drop=True)
 
-        df["amount_robust_z_sender"] = (
-            df.groupby("sender_id", dropna=False)["amount"].transform(lambda s: robust_zscore(s.astype(float).fillna(0.0)))
+        df["amount_robust_z_sender"] = df.groupby("sender_id", dropna=False)["amount"].transform(
+            lambda s: robust_zscore(s.astype(float).fillna(0.0))
         )
-        df["amount_robust_z_recipient"] = (
-            df.groupby("recipient_id", dropna=False)["amount"].transform(lambda s: robust_zscore(s.astype(float).fillna(0.0)))
+        df["amount_robust_z_recipient"] = df.groupby("recipient_id", dropna=False)["amount"].transform(
+            lambda s: robust_zscore(s.astype(float).fillna(0.0))
         )
 
         pair_key = df["sender_id"].fillna("") + "->" + df["recipient_id"].fillna("")
@@ -55,7 +56,7 @@ class FeatureStore:
         out["weekday_rarity"] = 0.0
         out["burst_count_10min"] = 0.0
 
-        for sender, grp in out.groupby("sender_id", dropna=False):
+        for _, grp in out.groupby("sender_id", dropna=False):
             idx = grp.index
             g = grp.set_index("timestamp").sort_index()
 
@@ -84,6 +85,7 @@ class FeatureStore:
         return out
 
     def build_geo_features(self, transactions_df: pd.DataFrame, locations_df: pd.DataFrame, users_df: pd.DataFrame) -> pd.DataFrame:
+        _ = locations_df, users_df
         df = transactions_df.copy()
         out = df[["transaction_id", "sender_id", "timestamp", "location"]].copy()
 
@@ -94,19 +96,19 @@ class FeatureStore:
         for idx, row in df.iterrows():
             tx_lat = row.get("city_lat")
             tx_lng = row.get("city_lng")
+            if pd.isna(tx_lat) or pd.isna(tx_lng):
+                continue
 
-            if not pd.isna(tx_lat) and not pd.isna(tx_lng):
-                rlat = row.get("sender_residence_lat")
-                rlng = row.get("sender_residence_lng")
-                if not pd.isna(rlat) and not pd.isna(rlng):
-                    out.at[idx, "distance_from_residence_km"] = haversine_km(float(rlat), float(rlng), float(tx_lat), float(tx_lng))
+            rlat = row.get("sender_residence_lat")
+            rlng = row.get("sender_residence_lng")
+            if not pd.isna(rlat) and not pd.isna(rlng):
+                out.at[idx, "distance_from_residence_km"] = haversine_km(float(rlat), float(rlng), float(tx_lat), float(tx_lng))
 
-                glat = row.get("latest_gps_lat")
-                glng = row.get("latest_gps_lng")
-                if not pd.isna(glat) and not pd.isna(glng):
-                    out.at[idx, "distance_from_latest_gps_km"] = haversine_km(float(glat), float(glng), float(tx_lat), float(tx_lng))
+            glat = row.get("latest_gps_lat")
+            glng = row.get("latest_gps_lng")
+            if not pd.isna(glat) and not pd.isna(glng):
+                out.at[idx, "distance_from_latest_gps_km"] = haversine_km(float(glat), float(glng), float(tx_lat), float(tx_lng))
 
-        # City novelty by sender.
         out = out.sort_values(["sender_id", "timestamp"]).reset_index(drop=True)
         seen: dict[str, set[str]] = {}
         novelty = []
@@ -126,7 +128,7 @@ class FeatureStore:
         tx["suspicious_communication_window_score"] = 0.0
         tx["comm_events_past_7d"] = 0.0
 
-        comm_rows: list[dict] = []
+        comm_rows = []
         for _, row in sms_df.iterrows():
             text = str(row.get("message_text") or "")
             comm_rows.append(
@@ -158,14 +160,18 @@ class FeatureStore:
             ts = row.get("timestamp")
             if pd.isna(ts):
                 continue
-            names = [str(row.get("sender_first_name") or "").strip().lower(), str(row.get("recipient_first_name") or "").strip().lower()]
+
+            names = [
+                str(row.get("sender_first_name") or "").strip().lower(),
+                str(row.get("recipient_first_name") or "").strip().lower(),
+            ]
             names = [n for n in names if n]
             if not names:
                 continue
 
             mask = pd.Series(False, index=comm_df.index)
-            for n in names:
-                mask = mask | comm_df["text_l"].str.contains(re.escape(n), regex=True)
+            for name in names:
+                mask = mask | comm_df["text_l"].str.contains(re.escape(name), regex=True)
 
             scoped = comm_df[mask & (comm_df["timestamp"] <= ts) & (comm_df["timestamp"] >= ts - pd.Timedelta(days=30))]
             if scoped.empty:
@@ -178,6 +184,23 @@ class FeatureStore:
             tx.at[idx, "comm_events_past_7d"] = float((hours <= 24 * 7).sum())
 
         return tx
+
+    def build_reference_delta_features(self, transactions_df: pd.DataFrame) -> pd.DataFrame:
+        if self.baseline_store is None:
+            out = transactions_df[["transaction_id"]].copy()
+            out["ref_sender_amount_robust_z"] = 0.0
+            out["ref_recipient_amount_robust_z"] = 0.0
+            out["pair_seen_in_reference"] = 0
+            out["payment_method_seen_by_sender_ref"] = 0
+            out["transaction_type_seen_by_sender_ref"] = 0
+            out["reference_hour_rarity"] = 1.0
+            out["reference_weekday_rarity"] = 1.0
+            out["reference_geo_novelty"] = 1.0
+            out["unseen_transaction_type_indicator"] = 1
+            out["unseen_payment_method_indicator"] = 1
+            out["unseen_location_pattern_indicator"] = 1
+            return out
+        return self.baseline_store.transform_target(transactions_df)
 
     def build_novelty_features(self, features_df: pd.DataFrame) -> pd.DataFrame:
         out = features_df[["transaction_id"]].copy()
@@ -212,15 +235,32 @@ class FeatureStore:
         out["novelty_score"] = (out["iso_anomaly_score"] + out["lof_anomaly_score"]) / 2.0
         return out
 
-    def build_all(self, transactions_df: pd.DataFrame, users_df: pd.DataFrame, locations_df: pd.DataFrame, sms_df: pd.DataFrame, mails_df: pd.DataFrame) -> pd.DataFrame:
+    def build_all(
+        self,
+        transactions_df: pd.DataFrame,
+        users_df: pd.DataFrame,
+        locations_df: pd.DataFrame,
+        sms_df: pd.DataFrame,
+        mails_df: pd.DataFrame,
+    ) -> pd.DataFrame:
         base = self.build_transaction_features(transactions_df)
         temporal = self.build_temporal_features(base)
         geo = self.build_geo_features(transactions_df, locations_df, users_df)
         comm = self.build_communication_features(transactions_df, sms_df, mails_df)
+        ref_delta = self.build_reference_delta_features(transactions_df)
 
         merged = base.merge(temporal, on=["transaction_id", "sender_id", "timestamp"], how="left")
-        merged = merged.merge(geo[["transaction_id", "distance_from_residence_km", "distance_from_latest_gps_km", "geo_novelty"]], on="transaction_id", how="left")
-        merged = merged.merge(comm[["transaction_id", "suspicious_communication_window_score", "comm_events_past_7d"]], on="transaction_id", how="left")
+        merged = merged.merge(
+            geo[["transaction_id", "distance_from_residence_km", "distance_from_latest_gps_km", "geo_novelty"]],
+            on="transaction_id",
+            how="left",
+        )
+        merged = merged.merge(
+            comm[["transaction_id", "suspicious_communication_window_score", "comm_events_past_7d"]],
+            on="transaction_id",
+            how="left",
+        )
+        merged = merged.merge(ref_delta, on="transaction_id", how="left")
 
         novelty = self.build_novelty_features(merged)
         merged = merged.merge(novelty, on="transaction_id", how="left")

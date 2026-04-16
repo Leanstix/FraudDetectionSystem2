@@ -51,3 +51,16 @@ PHISHING_DOMAIN_HINTS = [
 DEFAULT_MODEL = "openai/gpt-4o-mini"
 DEFAULT_TEMPERATURE = 0.2
 DEFAULT_RANDOM_SEED = 42
+
+BASELINE_DELTA_COLUMNS = [
+    "ref_sender_amount_robust_z",
+    "ref_recipient_amount_robust_z",
+    "pair_seen_in_reference",
+    "payment_method_seen_by_sender_ref",
+    "transaction_type_seen_by_sender_ref",
+    "reference_hour_rarity",
+    "reference_weekday_rarity",
+    "unseen_transaction_type_indicator",
+    "unseen_payment_method_indicator",
+    "unseen_location_pattern_indicator",
+]
