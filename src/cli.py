@@ -7,11 +7,16 @@ from src.pipeline.orchestrator import FraudPipeline
 
 
 def infer_dataset_name(reference_path: str, target_path: str) -> str:
-    joined = f"{Path(reference_path).stem}_{Path(target_path).stem}".lower().replace(" ", "_").replace("+", "_")
-    tokens = [token for token in joined.replace("-", "_").split("_") if token]
-    if "truman" in joined:
-        return "the_truman_show"
-    return "_".join(tokens)
+    ref = Path(reference_path).stem.lower().replace(" ", "_").replace("+", "_").replace("-", "_")
+    tgt = Path(target_path).stem.lower().replace(" ", "_").replace("+", "_").replace("-", "_")
+
+    ref_tokens = [t for t in ref.split("_") if t and t not in {"train", "reference"}]
+    tgt_tokens = [t for t in tgt.split("_") if t and t not in {"validation", "target", "input", "eval", "evaluation"}]
+
+    common = [t for t in ref_tokens if t in set(tgt_tokens)]
+    if common:
+        return "_".join(common)
+    return "_".join(ref_tokens or tgt_tokens or ["dataset"])
 
 
 def run_inspect_pair(reference_path: str, input_path: str, config_path: str | None = None) -> dict:

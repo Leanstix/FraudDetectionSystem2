@@ -62,7 +62,7 @@ class FeatureStore:
 
             c1h = g["transaction_id"].rolling("1h").count() - 1
             c24h = g["transaction_id"].rolling("24h").count() - 1
-            c7d = g["transaction_id"].rolling("7d").count() - 1
+            c7d = g["transaction_id"].rolling("7D").count() - 1
             burst = g["transaction_id"].rolling("10min").count() - 1
 
             out.loc[idx, "txn_count_past_1h"] = c1h.values
